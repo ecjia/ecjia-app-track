@@ -83,10 +83,21 @@ class user_orders_express_message_module extends api_front implements api_interf
     					->where('shipping_time', '<=', $current_time)
     					->lists('order_id');
     	
-    	
+    	//最近一个月订单没有满足条件的返回空
+    	if (empty($order_ids)) {
+    		$page = array(
+    				'total'	=>	0,
+    				'count'	=> 	0,
+    				'more'	=> 	0
+    		);
+    		
+    		return array('data' => array(), 'pager' => $page);
+    	}
     	
     	//这些订单物流数据为空时，请求接口，录入物流信息
-    	$ship_code = RC_Loader::load_app_config('shipping_code', 'shipping');
+    	$ship_code 		= RC_Loader::load_app_config('shipping_code', 'shipping');
+    	$track_status 	= RC_Loader::load_app_config('track_status', 'track');
+    	
     	$order_track_list = [];
     	if (!empty($order_ids)) {
     		$order_track_list = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->get();
@@ -132,6 +143,7 @@ class user_orders_express_message_module extends api_front implements api_interf
     			//一个月订单有部分录入数据库，部分未录入物流数据库时
     			$tracked_number = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->where('order_type', 'default')->lists('track_number');
     			$delivery = RC_DB::table('delivery_order')->whereIn('order_id', $order_ids)->get();
+    			
     			if (!empty($delivery)) {
     				foreach ($delivery as $value) {
     					if (!in_array($value['invoice_no'], $tracked_number)) {
@@ -167,11 +179,11 @@ class user_orders_express_message_module extends api_front implements api_interf
     			}
     	
     			//这些订单的物流更新时间有没超过3小时的，有超过3小时的请求接口更新本地数据库；
-    			//$time_period = 3*3600;
-    			$time_period = 10*60;
+    			$time_period = 1*3600;
     			$period = $current_time - $time_period;
     			$result = [];
-    			$result = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->where('update_time', '<=', $period);
+    			$result = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->where('update_time', '<=', $period)->get();
+    			
     			if (!empty($result)) {
     				foreach ($result as $row) {
     					$params = array(
@@ -183,7 +195,7 @@ class user_orders_express_message_module extends api_front implements api_interf
     					);
     					$cloud = ecjia_cloud::instance()->api('express/track')->data($params)->run();
     					if (is_ecjia_error($cloud->getError())) {
-    						$data = array('content' => array('time' => 'error', 'context' => $cloud->getError()->get_error_message()));
+    						return new ecjia_error('track_setting_error', $cloud->getError()->get_error_message());
     					} else {
     						$data = $cloud->getReturnData();
     						if (!empty($data['company']) && !empty($data['number'])) {
@@ -196,19 +208,81 @@ class user_orders_express_message_module extends api_front implements api_interf
     	}
     	
     	//查询本地数据库物流信息
+    	$arr = [];
+    	$goods_list = [];
+    	
     	if (!empty($order_ids)) {
     		$count = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->count();
     		//实例化分页
-    		//$page_row = new ecjia_page($record_count, $size, 6, '', $page);
+    		$page_row = new ecjia_page($count, $size, 6, '', $page);
+    		$latest_express_log = [];
+    		$list = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->take($size)->skip($page_row->start_id - 1)->orderBy('update_time', 'desc')->get();
+    		
+    		$delivery_goods_view = RC_DB::table('delivery_goods as dg')->leftJoin('goods as g', RC_DB::raw('g.goods_id'), '=', RC_DB::raw('dg.goods_id'));
+    		$field = 'dg.goods_id, dg.goods_name, dg.goods_sn, dg.send_number, g.goods_thumb, g.goods_img, g.original_img';
+    		
+			if (!empty($list)) {
+				foreach ($list as $v) {
+					$label_shipping_status = $track_status[$v['status']];
+					$track_log = RC_DB::table('track_log')->where('track_number', $v['track_number'])->where('track_company', $v['company_code'])->orderBy('time', 'desc')->get();
+					
+					if (!empty($track_log)) {
+						$latest_express_log = array('time' => $track_log['0']['time'], 'context' => $track_log['0']['context']);
+					}
+					//发货商品
+					$delivery_id = RC_DB::table('delivery_order')->where('order_id', $v['order_id'])->where('invoice_no', $v['track_number'])->pluck('delivery_id');
+					$delivery_goods = $delivery_goods_view->where('delivery_id', $delivery_id)->select(RC_DB::raw($field))->get();
+					if (!empty($delivery_goods)) {
+						foreach ($delivery_goods as $rows) {
+							$goods_list[] = array(
+									'id' 		=> $rows['goods_id'],
+									'name'		=> $rows['goods_name'],
+									'goods_sn'	=> $rows['goods_sn'],
+									'number'	=> $rows['send_number'],
+									'img'		=> array(
+														'thumb' => empty($rows['goods_thumb']) ? '' : RC_Upload::upload_url($rows['goods_thumb']),
+														'url' => empty($rows['original_img']) ? '' : RC_Upload::upload_url($rows['original_img']),
+														'small' => empty($rows['goods_img']) ? '' : RC_Upload::upload_url($rows['goods_img'])
+													)
+							);
+						}
+					}
+					$arr[] = array(
+							'order_id' 					=> intval($v['order_id']),
+							'company_name'				=> empty($v['company_name']) ? '' : $v['company_name'],
+							'company_code'				=> empty($v['company_code']) ? '' : $v['company_code'],
+							'shipping_number'			=> empty($v['shipping_number']) ? '' : $v['shipping_number'],
+							'shipping_status'			=> isset($v['shipping_status']) ? 0 : intval($v['shipping_status']),
+							'label_shipping_status' 	=> $label_shipping_status,
+							'sign_time_formated'		=> empty($v['sign_time']) ? '' : $v['sign_time'],
+							'latest_express_log'		=> $latest_express_log,
+							'goods_items'				=> $goods_list
+							
+					);
+				}
+			}
+    		
+			$pager = array(
+					"total" => $page_row->total_records,
+					"count" => $page_row->total_records,
+					"more"  => $page_row->total_pages > $page['page'] ? 1 : 0,
+			);
+    	} else {
+    		$pager = array(
+    				"total" => 0,
+    				"count" => 0,
+    				"more"  => 0
+    		);
     	}
     	
+    	return array('data' => $arr, 'pager' => $pager);
 	}
 	
 	/**
 	 * 录入物流信息主表
 	 */
 	private function insert_track_logistic($order_id, $data) {
-		$ship_company = RC_Loader::load_app_config('shipping_company', 'shipping');
+		$ship_company = RC_Loader::load_app_config('shipping_company', 'track');
 		$arr = array(
 				'order_id' 		=> $order_id,
 				'order_type'	=> 'default',
