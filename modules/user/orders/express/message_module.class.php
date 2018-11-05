@@ -251,7 +251,7 @@ class user_orders_express_message_module extends api_front implements api_interf
 							'order_id' 					=> intval($v['order_id']),
 							'company_name'				=> empty($v['company_name']) ? '' : $v['company_name'],
 							'company_code'				=> empty($v['company_code']) ? '' : $v['company_code'],
-							'shipping_number'			=> empty($v['shipping_number']) ? '' : $v['shipping_number'],
+							'shipping_number'			=> empty($v['track_number']) ? '' : $v['track_number'],
 							'shipping_status'			=> isset($v['shipping_status']) ? 0 : intval($v['shipping_status']),
 							'label_shipping_status' 	=> $label_shipping_status,
 							'sign_time_formated'		=> empty($v['sign_time']) ? '' : $v['sign_time'],
