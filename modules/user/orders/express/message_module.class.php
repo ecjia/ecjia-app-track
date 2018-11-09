@@ -85,13 +85,13 @@ class user_orders_express_message_module extends api_front implements api_interf
     	
     	//最近一个月订单没有满足条件的返回空
     	if (empty($order_ids)) {
-    		$page = array(
+    		$pager = array(
     				'total'	=>	0,
     				'count'	=> 	0,
     				'more'	=> 	0
     		);
     		
-    		return array('data' => array(), 'pager' => $page);
+    		return array('data' => array(), 'pager' => $pager);
     	}
     	
     	//这些订单物流数据为空时，请求接口，录入物流信息
@@ -263,9 +263,9 @@ class user_orders_express_message_module extends api_front implements api_interf
 			}
     		
 			$pager = array(
-					"total" => $page_row->total_records,
-					"count" => $page_row->total_records,
-					"more"  => $page_row->total_pages > $page['page'] ? 1 : 0,
+					'total' => $page_row->total_records,
+					'count' => $page_row->total_records,
+					'more'	=> $page_row->total_pages <= $page ? 0 : 1,
 			);
     	} else {
     		$pager = array(
