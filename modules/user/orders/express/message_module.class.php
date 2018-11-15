@@ -209,8 +209,6 @@ class user_orders_express_message_module extends api_front implements api_interf
     	
     	//查询本地数据库物流信息
     	$arr = [];
-    	$goods_list = [];
-    	
     	if (!empty($order_ids)) {
     		$count = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->count();
     		//实例化分页
@@ -218,11 +216,10 @@ class user_orders_express_message_module extends api_front implements api_interf
     		$latest_express_log = [];
     		$list = RC_DB::table('track_logistic')->whereIn('order_id', $order_ids)->take($size)->skip($page_row->start_id - 1)->orderBy('update_time', 'desc')->get();
     		
-    		$delivery_goods_view = RC_DB::table('delivery_goods as dg')->leftJoin('goods as g', RC_DB::raw('g.goods_id'), '=', RC_DB::raw('dg.goods_id'));
-    		$field = 'dg.goods_id, dg.goods_name, dg.goods_sn, dg.send_number, g.goods_thumb, g.goods_img, g.original_img';
-    		
 			if (!empty($list)) {
 				foreach ($list as $v) {
+					$delivery_goods = [];
+					$delivery_id = 0;
 					$label_shipping_status = $track_status[$v['status']];
 					$track_log = RC_DB::table('track_log')->where('track_number', $v['track_number'])->where('track_company', $v['company_code'])->orderBy('time', 'desc')->get();
 					
@@ -231,22 +228,8 @@ class user_orders_express_message_module extends api_front implements api_interf
 					}
 					//发货商品
 					$delivery_id = RC_DB::table('delivery_order')->where('order_id', $v['order_id'])->where('invoice_no', $v['track_number'])->pluck('delivery_id');
-					$delivery_goods = $delivery_goods_view->where('delivery_id', $delivery_id)->select(RC_DB::raw($field))->get();
-					if (!empty($delivery_goods)) {
-						foreach ($delivery_goods as $rows) {
-							$goods_list[] = array(
-									'id' 		=> $rows['goods_id'],
-									'name'		=> $rows['goods_name'],
-									'goods_sn'	=> $rows['goods_sn'],
-									'number'	=> $rows['send_number'],
-									'img'		=> array(
-														'thumb' => empty($rows['goods_thumb']) ? '' : RC_Upload::upload_url($rows['goods_thumb']),
-														'url' => empty($rows['original_img']) ? '' : RC_Upload::upload_url($rows['original_img']),
-														'small' => empty($rows['goods_img']) ? '' : RC_Upload::upload_url($rows['goods_img'])
-													)
-							);
-						}
-					}
+					$delivery_goods = $this->get_delivery_goods($delivery_id);
+					
 					$arr[] = array(
 							'order_id' 					=> intval($v['order_id']),
 							'company_name'				=> empty($v['company_name']) ? '' : $v['company_name'],
@@ -256,7 +239,7 @@ class user_orders_express_message_module extends api_front implements api_interf
 							'label_shipping_status' 	=> $label_shipping_status,
 							'sign_time_formated'		=> empty($v['sign_time']) ? '' : $v['sign_time'],
 							'latest_express_log'		=> $latest_express_log,
-							'goods_items'				=> $goods_list
+							'goods_items'				=> $delivery_goods
 							
 					);
 				}
@@ -366,6 +349,35 @@ class user_orders_express_message_module extends api_front implements api_interf
 			}
 		}
 		return true;
+	}
+	
+	/**
+	 * 发货单商品
+	 */
+	private function get_delivery_goods($delivery_id = 0) {
+		$goods_list = [];
+		if (!empty($delivery_id)) {
+			$delivery_goods_view = RC_DB::table('delivery_goods as dg')->leftJoin('goods as g', RC_DB::raw('g.goods_id'), '=', RC_DB::raw('dg.goods_id'));
+			$field = 'dg.goods_id, dg.goods_name, dg.goods_sn, dg.send_number, g.goods_thumb, g.goods_img, g.original_img';
+			$delivery_goods = $delivery_goods_view->where('delivery_id', $delivery_id)->select(RC_DB::raw($field))->get();
+			if (!empty($delivery_goods)) {
+				$goods_list = [];
+				foreach ($delivery_goods as $rows) {
+					$goods_list[] = array(
+							'id' 		=> $rows['goods_id'],
+							'name'		=> $rows['goods_name'],
+							'goods_sn'	=> $rows['goods_sn'],
+							'number'	=> $rows['send_number'],
+							'img'		=> array(
+									'thumb' => empty($rows['goods_thumb']) ? '' : RC_Upload::upload_url($rows['goods_thumb']),
+									'url' => empty($rows['original_img']) ? '' : RC_Upload::upload_url($rows['original_img']),
+									'small' => empty($rows['goods_img']) ? '' : RC_Upload::upload_url($rows['goods_img'])
+							)
+					);
+				}
+			}
+		}
+		return $goods_list;
 	}
 }
 
